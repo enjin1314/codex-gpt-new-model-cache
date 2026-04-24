@@ -39,20 +39,41 @@ ${CODEX_HOME:-~/.codex}/models_cache.json
 3. 环境变量 `CODEX_CLIENT_VERSION`
 4. 模板里的 `client_version`
 
-## 安装
+## 推荐用法
 
-克隆到 Codex skills 目录：
+把这个 GitHub 链接发给 Codex/AI，让它帮你安装并运行：
+
+```text
+https://github.com/enjin1314/codex-gpt-new-model-cache
+```
+
+可以直接这样说：
+
+```text
+请安装并运行这个 Codex skill，帮我让 API key 登录也显示 GPT-5.5：
+https://github.com/enjin1314/codex-gpt-new-model-cache
+```
+
+AI 应该做的事情是：
+
+1. 克隆这个仓库到 Codex skills 目录。
+2. 运行 `scripts/write_models_cache.py`。
+3. 提醒你重启 Codex。
+
+运行成功后会输出写入路径、`fetched_at`、`client_version` 和模型列表。然后重启 Codex，API key 登录的模型选择器里应该可以看到 `gpt-5.5`。
+
+## 手动使用
+
+如果你想自己操作，也可以克隆到 Codex skills 目录：
 
 ```bash
 mkdir -p ~/.codex/skills
-git clone git@github.com:enjin1314/codex-gpt-new-model-cache.git ~/.codex/skills/codex-gpt-new-model-cache
+git clone https://github.com/enjin1314/codex-gpt-new-model-cache.git ~/.codex/skills/codex-gpt-new-model-cache
 ```
 
 如果你的 `CODEX_HOME` 不是 `~/.codex`，请克隆到对应的 skills 目录。
 
-## 使用
-
-运行脚本：
+然后运行脚本：
 
 ```bash
 python3 ~/.codex/skills/codex-gpt-new-model-cache/scripts/write_models_cache.py
@@ -63,8 +84,6 @@ python3 ~/.codex/skills/codex-gpt-new-model-cache/scripts/write_models_cache.py
 ```bash
 python3 /path/to/codex-gpt-new-model-cache/scripts/write_models_cache.py
 ```
-
-运行成功后会输出写入路径、`fetched_at`、`client_version` 和模型列表。然后重启 Codex，API key 登录的模型选择器里应该可以看到 `gpt-5.5`。
 
 ## 自定义 Codex Home
 
@@ -104,4 +123,3 @@ codex-gpt-new-model-cache/
 └── scripts/
     └── write_models_cache.py
 ```
-
