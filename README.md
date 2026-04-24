@@ -34,10 +34,13 @@ ${CODEX_HOME:-~/.codex}/models_cache.json
 
 `client_version` 的来源优先级：
 
-1. 现有 `~/.codex/models_cache.json` 里的 `client_version`
-2. GitHub 上 `openai/codex` 的最新 `rust-v*` release
-3. 环境变量 `CODEX_CLIENT_VERSION`
-4. 模板里的 `client_version`
+1. Codex 二进制自己的版本，例如 macOS 的 `/Applications/Codex.app/Contents/Resources/codex --version`
+2. 最近 thread/session 保存的 `cli_version`，例如 `${CODEX_SQLITE_HOME:-$CODEX_HOME}/state_5.sqlite` 或 `${CODEX_HOME:-~/.codex}/sessions`
+3. `${CODEX_HOME:-~/.codex}/version.json` 里的 `latest_version`
+4. GitHub 上 `openai/codex` 的最新 `rust-v*` release
+5. 现有 `${CODEX_HOME:-~/.codex}/models_cache.json` 里的 `client_version`
+
+如果这些都不可用，脚本才会使用环境变量 `CODEX_CLIENT_VERSION` 或模板里的 `client_version` 兜底。
 
 ## 推荐用法
 
@@ -99,7 +102,13 @@ CODEX_HOME=/path/to/.codex python3 ~/.codex/skills/codex-gpt-new-model-cache/scr
 CODEX_CLIENT_VERSION=0.124.0 python3 ~/.codex/skills/codex-gpt-new-model-cache/scripts/write_models_cache.py
 ```
 
-脚本会优先使用现有缓存或 GitHub 最新 release，只有它们不可用时才会使用 `CODEX_CLIENT_VERSION`。
+脚本会优先使用 Codex 二进制、最近会话版本、`version.json`、GitHub 最新 release 或现有缓存，只有它们都不可用时才会使用 `CODEX_CLIENT_VERSION`。
+
+如果 Codex 二进制不在默认位置，可以手动指定：
+
+```bash
+CODEX_BINARY_PATH=/path/to/codex python3 ~/.codex/skills/codex-gpt-new-model-cache/scripts/write_models_cache.py
+```
 
 ## 注意事项
 

@@ -4,6 +4,9 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sqlite3
+import subprocess
+import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -34,6 +37,165 @@ def existing_cache_version(cache_path: Path) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def version_json_version(codex_home: Path) -> str | None:
+    version_path = codex_home / "version.json"
+    if not version_path.exists():
+        return None
+    try:
+        with version_path.open("r", encoding="utf-8") as version_file:
+            value = json.load(version_file).get("latest_version")
+    except (OSError, json.JSONDecodeError):
+        return None
+    return normalize_version(value)
+
+
+def latest_session_version(codex_home: Path) -> str | None:
+    for version in (
+        latest_sqlite_thread_version(codex_home),
+        latest_jsonl_session_version(codex_home),
+    ):
+        if version:
+            return version
+    return None
+
+
+def latest_sqlite_thread_version(codex_home: Path) -> str | None:
+    sqlite_home = Path(os.environ.get("CODEX_SQLITE_HOME", codex_home)).expanduser()
+    state_path = sqlite_home / "state_5.sqlite"
+    if not state_path.exists():
+        return None
+    try:
+        connection = sqlite3.connect(f"file:{state_path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        row = connection.execute(
+            """
+            SELECT cli_version
+            FROM threads
+            WHERE cli_version IS NOT NULL AND cli_version != ''
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        connection.close()
+    if not row:
+        return None
+    return normalize_version(row[0])
+
+
+def latest_jsonl_session_version(codex_home: Path) -> str | None:
+    sessions_dir = codex_home / "sessions"
+    if not sessions_dir.exists():
+        return None
+    try:
+        session_files = sorted(
+            sessions_dir.rglob("*.jsonl"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return None
+
+    for session_file in session_files[:20]:
+        try:
+            with session_file.open("r", encoding="utf-8") as handle:
+                first_line = handle.readline()
+        except OSError:
+            continue
+        try:
+            session_line = json.loads(first_line)
+        except json.JSONDecodeError:
+            continue
+        if session_line.get("type") == "session_meta":
+            meta = session_line.get("payload", {})
+        else:
+            item = session_line.get("item", {})
+            if item.get("type") != "session_meta":
+                continue
+            meta = item.get("meta", {})
+        if not isinstance(meta, dict):
+            continue
+        if version := normalize_version(meta.get("cli_version")):
+            return version
+    return None
+
+
+def normalize_version(value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    version = value.strip()
+    if version.startswith("codex-cli "):
+        version = version.split(maxsplit=1)[1]
+    if version.startswith("rust-v"):
+        version = version.removeprefix("rust-v")
+    version = version.split("-", maxsplit=1)[0]
+    parts = version.split(".")
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        return None
+    return version
+
+
+def codex_binary_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    for env_name in ("CODEX_BINARY_PATH", "CODEX_BINARY"):
+        if value := os.environ.get(env_name):
+            candidates.append(Path(value).expanduser())
+
+    if sys.platform == "darwin":
+        candidates.append(Path("/Applications/Codex.app/Contents/Resources/codex"))
+    elif sys.platform == "win32":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            roots = [
+                Path(local_app_data) / "Programs",
+                Path(local_app_data) / "Microsoft" / "WindowsApps",
+            ]
+            for root in roots:
+                if root.exists():
+                    candidates.extend(root.rglob("codex.exe"))
+
+    if path_codex := shutil.which("codex"):
+        candidates.append(Path(path_codex))
+
+    seen: set[Path] = set()
+    unique_candidates: list[Path] = []
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            resolved = candidate
+        if resolved not in seen:
+            seen.add(resolved)
+            unique_candidates.append(candidate)
+    return unique_candidates
+
+
+def codex_binary_version() -> str | None:
+    for candidate in codex_binary_candidates():
+        if not candidate.exists():
+            continue
+        try:
+            result = subprocess.run(
+                [str(candidate), "--version"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode != 0:
+            continue
+        for token in result.stdout.strip().split():
+            if version := normalize_version(token):
+                return version
+    return None
+
+
 def latest_github_release_version() -> str | None:
     request = urllib.request.Request(
         LATEST_RELEASE_URL,
@@ -49,10 +211,7 @@ def latest_github_release_version() -> str | None:
         return None
 
     tag_name = payload.get("tag_name")
-    if not isinstance(tag_name, str) or not tag_name.startswith("rust-v"):
-        return None
-    version = tag_name.removeprefix("rust-v")
-    return version if version else None
+    return normalize_version(tag_name)
 
 
 def main() -> None:
@@ -65,8 +224,11 @@ def main() -> None:
 
     cache["fetched_at"] = iso_utc_after_30_days()
     cache["client_version"] = (
-        existing_cache_version(cache_path)
+        codex_binary_version()
+        or latest_session_version(codex_home)
+        or version_json_version(codex_home)
         or latest_github_release_version()
+        or existing_cache_version(cache_path)
         or os.environ.get("CODEX_CLIENT_VERSION")
         or cache.get("client_version")
     )
